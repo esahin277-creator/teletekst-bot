@@ -1,105 +1,107 @@
-import tweepy
-import time
 import os
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.common.by import By
-from webdriver_manager.chrome import ChromeDriverManager
+import requests
+import tweepy
+import random
+import io
+import time
 
-# --- AYARLAR ---
-SITE_URL = "https://teletekst.tr/"
-LOG_FILE = "last_news.txt"
-IMAGE_FILE = "haber.png"
+# 1. Twitter Kimlik Doğrulaması
+def get_twitter_conn_v1(api_key, api_secret, access_token, access_secret):
+    """Medya yüklemek için v1.1 API bağlantısı"""
+    auth = tweepy.OAuth1UserHandler(api_key, api_secret, access_token, access_secret)
+    return tweepy.API(auth)
 
-# --- TWITTER TOKENLERİ ---
-API_KEY = os.getenv("TWITTER_API_KEY")
-API_SECRET = os.getenv("TWITTER_API_SECRET")
-ACCESS_TOKEN = os.getenv("TWITTER_ACCESS_TOKEN")
-ACCESS_SECRET = os.getenv("TWITTER_ACCESS_SECRET")
+def get_twitter_conn_v2(api_key, api_secret, access_token, access_secret):
+    """Tweet atmak için v2 API bağlantısı"""
+    client = tweepy.Client(
+        consumer_key=api_key,
+        consumer_secret=api_secret,
+        access_token=access_token,
+        access_token_secret=access_secret
+    )
+    return client
 
-def setup_driver():
-    options = Options()
-    options.add_argument("--headless")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    # iPhone Boyutları
-    options.add_argument("--window-size=375,812")
-    options.add_argument("user-agent=Mozilla/5.0 (iPhone; CPU iPhone OS 13_2_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.0.3 Mobile/15E148 Safari/604.1")
-    service = Service(ChromeDriverManager().install())
-    driver = webdriver.Chrome(service=service, options=options)
-    return driver
+# 2. Chicago Art Institute API'den Veri Çekme
+def get_random_artwork():
+    base_url = "https://api.artic.edu/api/v1/artworks"
+    
+    # Rastgelelik sağlamak için 1 ile 1000 arasında rastgele bir sayfa seçiyoruz
+    page = random.randint(1, 1000)
+    
+    params = {
+        'page': page,
+        'limit': 1,
+        'fields': 'id,title,artist_display,date_display,image_id,medium_display'
+    }
 
-def run():
-    # DOSYA GARANTİSİ: Hata alsa bile dosya var olsun.
-    if not os.path.exists(LOG_FILE):
-        with open(LOG_FILE, "w", encoding="utf-8") as f:
-            f.write("KURULUM")
-
-    driver = setup_driver()
     try:
-        print("🌍 Siteye giriliyor...")
-        driver.get(SITE_URL)
-        time.sleep(8) # Sitenin iyice yüklenmesini bekle
-
-        # --- YENİ STRATEJİ: NE OLURSA OLSUN TIKLA ---
-        # Sayfadaki tüm tıklanabilir öğeleri al (a tag'leri ve div'ler)
-        # İçinde en az 10 harf olan ilk öğeyi bul ve tıkla.
-        try:
-            elements = driver.find_elements(By.XPATH, "//*[string-length(text()) > 15]")
+        response = requests.get(base_url, params=params)
+        data = response.json()
+        artwork = data['data'][0]
+        
+        # Eğer eserin görseli yoksa (image_id null ise), tekrar dene
+        if not artwork.get('image_id'):
+            print("Görseli olmayan eser geldi, tekrar deneniyor...")
+            return get_random_artwork()
             
-            target_element = None
-            for elem in elements:
-                # Görünür ve tıklanabilir olan ilkini seç
-                if elem.is_displayed():
-                    target_element = elem
-                    break
-            
-            if target_element:
-                news_text = target_element.text.strip().replace("\n", " ")
-                print(f"Buldum ve Tıklıyorum: {news_text}")
-                
-                # TIKLA
-                driver.execute_script("arguments[0].click();", target_element)
-                time.sleep(5) # Popup açılma süresi
-            else:
-                print("❌ Tıklanacak uygun bir haber bulunamadı. Ekran görüntüsü alınıyor.")
-
-        except Exception as e:
-            print(f"❌ Tıklama hatası: {e}")
-
-        # Ekran Görüntüsü Al (Açılmışsa popup, açılmamışsa ana sayfa çıkar)
-        driver.save_screenshot(IMAGE_FILE)
-        print("📸 Fotoğraf çekildi.")
-
-        # Twitter'a Gönder
-        try:
-            auth = tweepy.OAuth1UserHandler(API_KEY, API_SECRET, ACCESS_TOKEN, ACCESS_SECRET)
-            api = tweepy.API(auth)
-            client = tweepy.Client(consumer_key=API_KEY, consumer_secret=API_SECRET, 
-                                   access_token=ACCESS_TOKEN, access_token_secret=ACCESS_SECRET)
-
-            media = api.media_upload(filename=IMAGE_FILE)
-            
-            # Başlık bulunamadıysa standart metin yaz
-            if 'news_text' not in locals():
-                news_text = "Gündem Özeti"
-
-            tweet_text = f"🚨 {news_text}\n\n🔗 teletekst.tr"
-            client.create_tweet(text=tweet_text, media_ids=[media.media_id])
-            print("🚀 Tweet gönderildi!")
-            
-            # Başarılıysa dosyaya yaz
-            with open(LOG_FILE, "w", encoding="utf-8") as f:
-                f.write(news_text)
-
-        except Exception as tw_error:
-            print(f"❌ Twitter Hatası: {tw_error}")
-
+        return artwork
     except Exception as e:
-        print(f"❌ Genel Hata: {e}")
-    finally:
-        driver.quit()
+        print(f"API Hatası: {e}")
+        return None
+
+# 3. Görsel İndirme
+def download_image(image_id):
+    # Chicago API IIIF formatı kullanır. Genişliği 843px olarak ayarlıyoruz.
+    image_url = f"https://www.artic.edu/iiif/2/{image_id}/full/843,/0/default.jpg"
+    response = requests.get(image_url)
+    
+    if response.status_code == 200:
+        return io.BytesIO(response.content)
+    else:
+        print("Görsel indirilemedi.")
+        return None
+
+# 4. Ana Çalıştırma Fonksiyonu
+def main():
+    # Secret'ları ortam değişkenlerinden al
+    api_key = os.environ.get("API_KEY")
+    api_secret = os.environ.get("API_SECRET")
+    access_token = os.environ.get("ACCESS_TOKEN")
+    access_secret = os.environ.get("ACCESS_SECRET")
+
+    # API'den eser bul
+    artwork = get_random_artwork()
+    if not artwork:
+        print("Eser bulunamadı, işlem iptal.")
+        return
+
+    title = artwork.get('title', 'Untitled')
+    artist = artwork.get('artist_display', 'Unknown Artist')
+    date = artwork.get('date_display', 'Unknown Date')
+    
+    # Metni hazırla (Gereksiz satırları temizle)
+    artist_clean = artist.split('\n')[0] if artist else "Unknown"
+    caption = f"{title}\n\n🖌 {artist_clean}\n📅 {date}\n\n#Art #History #ChicagoArtInstitute #DailyArt"
+
+    # Görseli indir
+    image_file = download_image(artwork['image_id'])
+    if not image_file:
+        return
+
+    # Twitter'a yükle ve paylaş
+    try:
+        # V1 ile görsel yükle
+        api_v1 = get_twitter_conn_v1(api_key, api_secret, access_token, access_secret)
+        media = api_v1.media_upload(filename="art.jpg", file=image_file)
+        
+        # V2 ile tweet at
+        client_v2 = get_twitter_conn_v2(api_key, api_secret, access_token, access_secret)
+        client_v2.create_tweet(text=caption, media_ids=[media.media_id])
+        
+        print(f"Başarıyla paylaşıldı: {title}")
+        
+    except Exception as e:
+        print(f"Twitter Hatası: {e}")
 
 if __name__ == "__main__":
-    run()
+    main()
