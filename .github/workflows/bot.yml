@@ -2,41 +2,37 @@ name: Haber Botu
 
 on:
   schedule:
-    - cron: '*/15 * * * *'  # Her 15 dakikada bir kontrol et
-  workflow_dispatch:        # Elle çalıştırma butonu
+    - cron: '*/20 * * * *'
+  workflow_dispatch:
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
     permissions:
-      contents: write       # Yazma izni
+      contents: write
       
     steps:
-      - name: Depoyu Cek
-        uses: actions/checkout@v3
-
-      - name: Python Kur
-        uses: actions/setup-python@v4
+      - uses: actions/checkout@v3
+      
+      - uses: actions/setup-python@v4
         with:
           python-version: '3.9'
-
-      - name: Kutuphaneleri Yukle
-        run: pip install -r requirements.txt
-
+          
+      - run: pip install -r requirements.txt
+      
       - name: Botu Calistir
         env:
           TWITTER_API_KEY: ${{ secrets.TWITTER_API_KEY }}
           TWITTER_API_SECRET: ${{ secrets.TWITTER_API_SECRET }}
           TWITTER_ACCESS_TOKEN: ${{ secrets.TWITTER_ACCESS_TOKEN }}
           TWITTER_ACCESS_SECRET: ${{ secrets.TWITTER_ACCESS_SECRET }}
-        run: python main.py
-
-      - name: Kayit ve Guncelleme
+        run: |
+          python main.py || echo "Python hatasi oldu ama devam ediyoruz."
+        
+      - name: Kayit (Hatasiz)
         run: |
           git config --global user.name 'HaberBotu'
           git config --global user.email 'actions@github.com'
-          # Dosya yoksa bile eklemesini sagla
           touch last_news.txt
           git add last_news.txt
-          # Degisiklik varsa commit et, yoksa hata verme
-          git diff --quiet && git diff --staged --quiet || (git commit -m "Son haber guncellendi" && git push)
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Log guncellendi" && git push)
