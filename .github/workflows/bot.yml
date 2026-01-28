@@ -1,38 +1,33 @@
-name: Haber Botu
+name: Art Bot Auto Poster
 
 on:
   schedule:
-    - cron: '*/20 * * * *'
-  workflow_dispatch:
+    # Her 40 dakikada bir (yaklaşık) çalışır.
+    # Dakika 0 ve 40'ta tetiklenir.
+    - cron: '0,40 * * * *'
+  workflow_dispatch: # Manuel çalıştırma butonu ekler (Test için)
 
 jobs:
-  run-bot:
+  post_art:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      
+
     steps:
-      - uses: actions/checkout@v3
-      
-      - uses: actions/setup-python@v4
+      - name: Depoyu Çek (Checkout)
+        uses: actions/checkout@v3
+
+      - name: Python Kurulumu
+        uses: actions/setup-python@v4
         with:
           python-version: '3.9'
-          
-      - run: pip install -r requirements.txt
-      
-      - name: Botu Calistir
+
+      - name: Kütüphaneleri Yükle
+        run: |
+          pip install -r requirements.txt
+
+      - name: Botu Çalıştır
         env:
-          TWITTER_API_KEY: ${{ secrets.TWITTER_API_KEY }}
-          TWITTER_API_SECRET: ${{ secrets.TWITTER_API_SECRET }}
-          TWITTER_ACCESS_TOKEN: ${{ secrets.TWITTER_ACCESS_TOKEN }}
-          TWITTER_ACCESS_SECRET: ${{ secrets.TWITTER_ACCESS_SECRET }}
-        run: |
-          python main.py || echo "Python hatasi oldu ama devam ediyoruz."
-        
-      - name: Kayit (Hatasiz)
-        run: |
-          git config --global user.name 'HaberBotu'
-          git config --global user.email 'actions@github.com'
-          touch last_news.txt
-          git add last_news.txt
-          git diff --quiet && git diff --staged --quiet || (git commit -m "Log guncellendi" && git push)
+          API_KEY: ${{ secrets.API_KEY }}
+          API_SECRET: ${{ secrets.API_SECRET }}
+          ACCESS_TOKEN: ${{ secrets.ACCESS_TOKEN }}
+          ACCESS_SECRET: ${{ secrets.ACCESS_SECRET }}
+        run: python main.py
