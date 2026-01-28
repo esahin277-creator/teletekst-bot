@@ -1,5 +1,2 @@
-tweepy
-feedparser
-selenium
-webdriver-manager
 requests
+tweepy
